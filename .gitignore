@@ -1,0 +1,40 @@
+# Build outputs
+**/bin/
+**/obj/
+**/artifacts/
+**/*.nupkg
+**/*.snupkg
+
+# Test results and coverage
+**/TestResults/
+**/*.trx
+**/coverage/
+**/coverage.*
+**/*.coverage
+**/*.coveragexml
+
+# IDE and local tooling
+**/.vs/
+**/.idea/
+**/.vscode/
+**/.claude/
+**/*.user
+**/*.suo
+
+# Environment files (allow credential-free templates)
+**/.env
+**/.env.*
+!**/.env.example
+
+# Certificates and private keys
+**/*.cer
+**/*.crt
+**/*.csr
+**/*.der
+**/*.jks
+**/*.key
+**/*.keystore
+**/*.p12
+**/*.pem
+**/*.pfx
+**/*.ppk

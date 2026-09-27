@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PackageId>RabbitMQ.MessagePort</PackageId>
+    <Title>RabbitMQ.MessagePort</Title>
+    <Description>A .NET 8 RabbitMQ component for bounded publishing, explicit receiver bindings, composable codecs, and subscription broker switching.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="RabbitMQ.Client" Version="7.2.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="RabbitMQ.Component.Tests" />
+    <InternalsVisibleTo Include="RabbitMQ.Component.IntegrationTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../licenses/CommunityToolkit.HighPerformance.LICENSE.md"
+          Pack="true"
+          PackagePath="licenses/" />
+  </ItemGroup>
+</Project>
