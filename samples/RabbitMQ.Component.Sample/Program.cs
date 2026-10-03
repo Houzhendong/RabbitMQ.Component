@@ -8,8 +8,13 @@ using RabbitMQ.Component;
 using RabbitMQ.Component.Configuration;
 using RabbitMQ.Component.Serialization;
 
+LoadLocalEnvironment();
+
+if (args.Any(argument => argument != "--continuous"))
+    throw new InvalidOperationException("Usage: dotnet run --project samples/RabbitMQ.Component.Sample -- [--continuous]");
+bool continuous = args.Contains("--continuous");
 Uri primaryUri = ReadBrokerUri("RABBITMQ_PRIMARY_URI");
-Uri secondaryUri = ReadBrokerUri("RABBITMQ_SECONDARY_URI");
+Uri? secondaryUri = continuous ? null : ReadBrokerUri("RABBITMQ_SECONDARY_URI");
 string resource = $"rabbitmq-component-sample.{Guid.NewGuid():N}";
 string exchange = $"{resource}.exchange";
 string queue = $"{resource}.queue";
@@ -19,7 +24,10 @@ Exception? cleanupFailure = null;
 
 try
 {
-    await RunSampleAsync(primaryUri, secondaryUri, exchange, queue, route);
+    if (continuous)
+        await ContinuousSample.RunAsync(primaryUri, exchange, queue, route);
+    else
+        await RunSampleAsync(primaryUri, secondaryUri!, exchange, queue, route);
 }
 catch (Exception exception)
 {
@@ -28,9 +36,12 @@ catch (Exception exception)
 
 try
 {
-    await Task.WhenAll(
-        CleanupBrokerAsync(primaryUri, exchange, queue),
-        CleanupBrokerAsync(secondaryUri, exchange, queue));
+    if (secondaryUri is null)
+        await CleanupBrokerAsync(primaryUri, exchange, queue);
+    else
+        await Task.WhenAll(
+            CleanupBrokerAsync(primaryUri, exchange, queue),
+            CleanupBrokerAsync(secondaryUri, exchange, queue));
 }
 catch (Exception exception)
 {
@@ -76,9 +87,14 @@ static async Task RunSampleAsync(Uri primaryUri, Uri secondaryUri, string exchan
             Queue = new QueueConfig
             {
                 Name = queue,
-                Durable = true,
-                Exclusive = false,
-                AutoDelete = false
+                Durable = false,
+                Exclusive = true,
+                AutoDelete = true,
+                Arguments = new Dictionary<string, object?>
+                {
+                    ["x-queue-type"] = "classic",
+                    ["x-expires"] = 60_000
+                }
             },
             Codec = codec
         },
@@ -130,6 +146,17 @@ static async Task RunSampleAsync(Uri primaryUri, Uri secondaryUri, string exchan
         .CreateConnectionAsync(cancellationToken);
     await using IChannel primaryChannel = await primaryConnection
         .CreateChannelAsync(cancellationToken: cancellationToken);
+    // Switching closes the old subscriber and deletes its exclusive auto-delete queue.
+    // Recreate that topology on the verification connection before testing the publisher.
+    await primaryChannel.QueueDeclareAsync(
+        queue, durable: false, exclusive: true, autoDelete: true,
+        arguments: new Dictionary<string, object?>
+        {
+            ["x-queue-type"] = "classic",
+            ["x-expires"] = 60_000
+        },
+        cancellationToken: cancellationToken);
+    await primaryChannel.QueueBindAsync(queue, exchange, route, cancellationToken: cancellationToken);
     TaskCompletionSource<SampleMessage> primaryDelivery = await StartConsumerAsync(
         primaryChannel, queue, codec, cancellationToken);
 
@@ -222,12 +249,49 @@ static ConnectionFactory CreateFactory(Uri uri) => new()
     RequestedConnectionTimeout = TimeSpan.FromSeconds(10)
 };
 
+// Find the repository .env when launched from the repository, sample directory, or build output.
+// Existing non-empty process environment variables take precedence over local settings.
+static void LoadLocalEnvironment()
+{
+    string? path = FindEnvironmentFile(Directory.GetCurrentDirectory())
+        ?? FindEnvironmentFile(AppContext.BaseDirectory);
+    if (path is null) return;
+
+    foreach (string line in File.ReadLines(path))
+    {
+        string text = line.Trim();
+        if (text.Length == 0 || text.StartsWith('#')) continue;
+        int separator = text.IndexOf('=');
+        if (separator < 0) continue;
+        string name = text[..separator].Trim();
+        if (name is not ("RABBITMQ_PRIMARY_URI" or "RABBITMQ_SECONDARY_URI")) continue;
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(name))) continue;
+
+        string value = text[(separator + 1)..].Trim();
+        if (value.Length >= 2 &&
+            ((value[0] == '"' && value[^1] == '"') || (value[0] == '\'' && value[^1] == '\'')))
+            value = value[1..^1];
+        Environment.SetEnvironmentVariable(name, value);
+    }
+}
+
+static string? FindEnvironmentFile(string startDirectory)
+{
+    for (DirectoryInfo? directory = new(startDirectory); directory is not null; directory = directory.Parent)
+    {
+        if (!File.Exists(Path.Combine(directory.FullName, "RabbitMQ.Component.sln"))) continue;
+        string path = Path.Combine(directory.FullName, ".env");
+        return File.Exists(path) ? path : null;
+    }
+    return null;
+}
+
 static Uri ReadBrokerUri(string variable)
 {
     string? value = Environment.GetEnvironmentVariable(variable);
     if (!Uri.TryCreate(value, UriKind.Absolute, out Uri? uri) ||
         (uri.Scheme != "amqp" && uri.Scheme != "amqps"))
-        throw new InvalidOperationException($"Set {variable} to a valid AMQP URI.");
+        throw new InvalidOperationException($"Set {variable} to a valid AMQP URI in the repository .env file or process environment.");
     return uri;
 }
 
